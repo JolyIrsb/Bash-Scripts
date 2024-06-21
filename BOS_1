@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# Имя программы
+PROGNAME="$(basename $0)"
+
+# Вывод пользователей и их домашних директорий с сортировкой по алфавиту
+function users {
+	cut -d ':' -f 1,6 /etc/passwd | sort
+}
+
+# Вывод процессов в формате: id процесса, его имя
+function processes {
+	ps -eo pid,cmd
+}
+
+# Помощь
+function help {
+	echo -e "$PROGNAME: usage: $PROGNAME [-u,--users \n -p,--processes \n -h,--help \n -l PATH,--log PATH \n -e PATH, --errors PATH]"
+}
+
+# Если указан путь к файлу, запись в него (состояние 0)
+# Если к директории, то в ней будет создан файл (состояние 1)
+# Иначе вывод ошибки и выход
+function checkPath {
+	if [ -w ${path} ]; then
+		if [ -f ${path} ]; then
+			return 0
+		elif [ -d ${path} ]; then
+			return 1
+		else
+			echo "Wrong path" >&2
+			exit
+		fi
+	elif [[ -w $(dirname ${path}) && -d $(dirname ${path}) && ! -e ${path} ]]; then
+		return 0
+	else
+		echo "Wrong path or no rights" >&2
+		exit
+	fi
+}
+
+# Вызов функции checkPath и обработка того, что он вернул
+# 0 - запись в файл по переданному пути
+# 1 - создание файла в переданной директории
+# Иные варианты предусмотрены в checkPath, но если все же что-то пойдет не так, вывод ошибки
+function log {
+	path=$logpath
+	checkPath
+	case $? in
+		0) exec 1>${path};;
+		1) echo "Creating $path/log.txt"
+			exec 1>${path}/log.txt;;
+		*) echo "Unexpected err" >&2
+			exit;;
+	esac
+}
+
+# Аналогично функции log
+function errors {
+	path=$errpath
+	checkPath
+	case $? in
+		0) exec 2>${path};;
+		1) echo "Creating $path/err.txt"
+			exec 2>${path}/err.txt;;
+		*) echo "Unexpected err" >&2
+			exit;;
+	esac
+}
+
+# задаем короткие и длинные имена аргументов
+SHORT_NAMES=u,p,h,l:,e:
+LONG_NAMES=users,processes,help,log:,errors:
+# -a позволяет длинные аргументы с -, -n задает имя getopt для ошибок
+OPT=$(getopt -an args -o $SHORT_NAMES -l $LONG_NAMES -- "$@")
+
+# количество верных переменных
+valid_args=$#
+
+# если равно нулю, то вызываем помощь
+if [ "$valid_args" -eq 0 ]; then
+	help
+fi
+
+eval set -- "$OPT"
+
+# Обработка параметров с помощью case
+while [[ -n "$1" ]]; do
+	case "$1" in
+			-u | --users)
+				users
+			;;
+			-p | --processes)
+				processes
+			;;
+			-h | --help)
+				help
+			;;
+			-l | --log)
+				logpath="$2"
+				log
+				shift
+			;;
+			-e | --errors)
+				errpath="$2"
+				errors
+				shift
+			;;
+			--)
+				break
+			;;
+			*)
+				echo "Wrong option: $1"
+				help
+			;;
+	esac
+	shift
+done
+
+# Проверка работы скрипта
+cat file_that_doesnt_exist
+cat file_that_exist
